@@ -1,0 +1,2116 @@
+--========================================================
+-- FEMBOY DEV ♡
+-- by jer3my_sc0tt
+--
+-- RightShift = Open / Close
+-- Auto R6 / R15
+-- Player selector
+--========================================================
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+
+local LP = Players.LocalPlayer
+
+--========================================================
+-- CONFIG
+--========================================================
+
+local OPEN_SIZE = UDim2.fromOffset(590, 410)
+local MINIMIZED_SIZE = UDim2.fromOffset(590, 62)
+
+local OPEN_POSITION = UDim2.new(0.5, -295, 0.5, -205)
+
+local CLOSED_POSITION = UDim2.new(
+	0.5,
+	-295,
+	0.5,
+	-180
+)
+
+local PINK = Color3.fromRGB(255, 135, 195)
+local PINK_LIGHT = Color3.fromRGB(255, 185, 220)
+
+local BG = Color3.fromRGB(18, 14, 22)
+local PANEL = Color3.fromRGB(27, 20, 31)
+local BUTTON = Color3.fromRGB(49, 37, 54)
+local BUTTON_ACTIVE = Color3.fromRGB(172, 72, 137)
+
+local TWEEN_INFO = TweenInfo.new(
+	0.28,
+	Enum.EasingStyle.Quint,
+	Enum.EasingDirection.Out
+)
+
+--========================================================
+-- GUI PARENT
+--========================================================
+
+local guiParent
+
+if gethui then
+	guiParent = gethui()
+else
+	guiParent = CoreGui
+end
+
+local old = guiParent:FindFirstChild("FemboyDev")
+
+if old then
+	old:Destroy()
+end
+
+--========================================================
+-- STATE
+--========================================================
+
+local selectedPlayer = nil
+
+local running = false
+local currentAction = nil
+
+local activeTrack = nil
+local activeConnection = nil
+local activeTween = nil
+
+local originalGravity = nil
+
+local menuOpen = true
+local minimized = false
+local closing = false
+
+local actionButtons = {}
+local playerButtons = {}
+
+--========================================================
+-- CHARACTER
+--========================================================
+
+local function getCharacter()
+	return LP.Character
+end
+
+local function getHumanoid()
+
+	local character = getCharacter()
+
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChildOfClass("Humanoid")
+end
+
+local function getRoot()
+
+	local character = getCharacter()
+
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChild("HumanoidRootPart")
+end
+
+local function getRig()
+
+	local humanoid = getHumanoid()
+
+	if humanoid
+		and humanoid.RigType
+			== Enum.HumanoidRigType.R6
+	then
+		return "R6"
+	end
+
+	return "R15"
+end
+
+--========================================================
+-- TARGET
+--========================================================
+
+local function getTargetCharacter()
+
+	if not selectedPlayer then
+		return nil
+	end
+
+	return selectedPlayer.Character
+end
+
+local function getTargetRoot()
+
+	local character = getTargetCharacter()
+
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChild("HumanoidRootPart")
+end
+
+local function getTargetTorso()
+
+	local character = getTargetCharacter()
+
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChild("LowerTorso")
+		or character:FindFirstChild("UpperTorso")
+		or character:FindFirstChild("Torso")
+end
+
+--========================================================
+-- ANIMATION
+--========================================================
+
+local function playAnimation(animationId, speed)
+
+	local humanoid = getHumanoid()
+
+	if not humanoid then
+		return nil
+	end
+
+	local animator =
+		humanoid:FindFirstChildOfClass("Animator")
+
+	if not animator then
+
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+
+	local animation = Instance.new("Animation")
+
+	animation.AnimationId =
+		"rbxassetid://" .. tostring(animationId)
+
+	local track =
+		animator:LoadAnimation(animation)
+
+	track:Play(0.15)
+
+	track:AdjustSpeed(speed or 1)
+
+	activeTrack = track
+
+	return track
+end
+
+--========================================================
+-- STOP EVERYTHING
+--========================================================
+
+local function stopEverything()
+
+	running = false
+	currentAction = nil
+
+	if activeConnection then
+
+		activeConnection:Disconnect()
+		activeConnection = nil
+	end
+
+	if activeTween then
+
+		pcall(function()
+			activeTween:Cancel()
+		end)
+
+		activeTween = nil
+	end
+
+	if activeTrack then
+
+		pcall(function()
+			activeTrack:Stop(0.15)
+		end)
+
+		activeTrack = nil
+	end
+
+	if originalGravity ~= nil then
+
+		workspace.Gravity = originalGravity
+		originalGravity = nil
+	end
+
+	for _, button in pairs(actionButtons) do
+
+		button.BackgroundColor3 = BUTTON
+	end
+end
+
+--========================================================
+-- SCREEN GUI
+--========================================================
+
+local ScreenGui = Instance.new("ScreenGui")
+
+ScreenGui.Name = "FemboyDev"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = false
+ScreenGui.DisplayOrder = 999
+ScreenGui.Parent = guiParent
+
+--========================================================
+-- MAIN
+--========================================================
+
+local Main = Instance.new("Frame")
+
+Main.Name = "Main"
+
+Main.AnchorPoint =
+	Vector2.new(0, 0)
+
+Main.Size =
+	UDim2.fromOffset(520, 350)
+
+Main.Position =
+	UDim2.new(
+		0.5,
+		-260,
+		0.5,
+		-175
+	)
+
+Main.BackgroundColor3 = BG
+
+Main.BackgroundTransparency = 1
+
+Main.BorderSizePixel = 0
+
+Main.ClipsDescendants = true
+
+Main.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+
+MainCorner.CornerRadius =
+	UDim.new(0, 22)
+
+MainCorner.Parent = Main
+
+local MainStroke = Instance.new("UIStroke")
+
+MainStroke.Color = PINK
+MainStroke.Thickness = 1.5
+MainStroke.Transparency = 1
+
+MainStroke.Parent = Main
+
+local MainGradient = Instance.new("UIGradient")
+
+MainGradient.Color =
+	ColorSequence.new({
+
+		ColorSequenceKeypoint.new(
+			0,
+			Color3.fromRGB(40, 22, 43)
+		),
+
+		ColorSequenceKeypoint.new(
+			0.5,
+			Color3.fromRGB(25, 18, 30)
+		),
+
+		ColorSequenceKeypoint.new(
+			1,
+			Color3.fromRGB(16, 13, 20)
+		)
+	})
+
+MainGradient.Rotation = 35
+MainGradient.Parent = Main
+
+--========================================================
+-- TOP BAR
+--========================================================
+
+local Top = Instance.new("Frame")
+
+Top.Name = "Top"
+
+Top.Size =
+	UDim2.new(1, 0, 0, 62)
+
+Top.BackgroundColor3 =
+	Color3.fromRGB(32, 22, 36)
+
+Top.BackgroundTransparency = 1
+
+Top.BorderSizePixel = 0
+
+Top.ClipsDescendants = true
+
+Top.Parent = Main
+
+-- Rounded TOP corners
+
+local TopCorner = Instance.new("UICorner")
+
+TopCorner.CornerRadius =
+	UDim.new(0, 22)
+
+TopCorner.Parent = Top
+
+-- Square bottom part of titlebar so
+-- only the upper edge looks rounded.
+
+local TopBottomFix = Instance.new("Frame")
+
+TopBottomFix.Name = "BottomFix"
+
+TopBottomFix.Size =
+	UDim2.new(1, 0, 0, 22)
+
+TopBottomFix.Position =
+	UDim2.new(0, 0, 1, -22)
+
+TopBottomFix.BackgroundColor3 =
+	Top.BackgroundColor3
+
+TopBottomFix.BackgroundTransparency = 1
+
+TopBottomFix.BorderSizePixel = 0
+
+TopBottomFix.Parent = Top
+
+--========================================================
+-- TITLE
+--========================================================
+
+local Title = Instance.new("TextLabel")
+
+Title.BackgroundTransparency = 1
+
+Title.Position =
+	UDim2.fromOffset(20, 8)
+
+Title.Size =
+	UDim2.new(1, -135, 0, 25)
+
+Title.Font =
+	Enum.Font.GothamBold
+
+Title.Text =
+	"FEMBOY DEV ♡"
+
+Title.TextColor3 = PINK_LIGHT
+
+Title.TextSize = 19
+
+Title.TextXAlignment =
+	Enum.TextXAlignment.Left
+
+Title.TextTransparency = 1
+
+Title.Parent = Top
+
+--========================================================
+-- CREDIT
+--========================================================
+
+local Credit = Instance.new("TextLabel")
+
+Credit.BackgroundTransparency = 1
+
+Credit.Position =
+	UDim2.fromOffset(20, 33)
+
+Credit.Size =
+	UDim2.new(0, 150, 0, 17)
+
+Credit.Font =
+	Enum.Font.Gotham
+
+Credit.Text =
+	"by jer3my_sc0tt"
+
+Credit.TextColor3 =
+	Color3.fromRGB(175, 145, 175)
+
+Credit.TextSize = 10
+
+Credit.TextXAlignment =
+	Enum.TextXAlignment.Left
+
+Credit.TextTransparency = 1
+
+Credit.Parent = Top
+
+--========================================================
+-- RIG
+--========================================================
+
+local RigLabel = Instance.new("TextLabel")
+
+RigLabel.BackgroundTransparency = 1
+
+RigLabel.Position =
+	UDim2.fromOffset(175, 33)
+
+RigLabel.Size =
+	UDim2.new(0, 140, 0, 17)
+
+RigLabel.Font =
+	Enum.Font.Gotham
+
+RigLabel.Text =
+	"Rig • " .. getRig()
+
+RigLabel.TextColor3 =
+	Color3.fromRGB(175, 155, 180)
+
+RigLabel.TextSize = 10
+
+RigLabel.TextXAlignment =
+	Enum.TextXAlignment.Left
+
+RigLabel.TextTransparency = 1
+
+RigLabel.Parent = Top
+
+--========================================================
+-- MINIMIZE
+--========================================================
+
+local Minimize = Instance.new("TextButton")
+
+Minimize.Size =
+	UDim2.fromOffset(36, 36)
+
+Minimize.Position =
+	UDim2.new(1, -88, 0, 13)
+
+Minimize.BackgroundColor3 =
+	Color3.fromRGB(65, 48, 69)
+
+Minimize.BackgroundTransparency = 1
+
+Minimize.BorderSizePixel = 0
+
+Minimize.Text = "—"
+
+Minimize.TextColor3 =
+	Color3.fromRGB(255, 240, 250)
+
+Minimize.TextTransparency = 1
+
+Minimize.Font =
+	Enum.Font.GothamBold
+
+Minimize.TextSize = 15
+
+Minimize.Parent = Top
+
+local MinimizeCorner =
+	Instance.new("UICorner")
+
+MinimizeCorner.CornerRadius =
+	UDim.new(0, 11)
+
+MinimizeCorner.Parent = Minimize
+
+--========================================================
+-- CLOSE
+--========================================================
+
+local Close = Instance.new("TextButton")
+
+Close.Size =
+	UDim2.fromOffset(36, 36)
+
+Close.Position =
+	UDim2.new(1, -46, 0, 13)
+
+Close.BackgroundColor3 =
+	Color3.fromRGB(180, 64, 105)
+
+Close.BackgroundTransparency = 1
+
+Close.BorderSizePixel = 0
+
+Close.Text = "×"
+
+Close.TextColor3 =
+	Color3.fromRGB(255, 240, 250)
+
+Close.TextTransparency = 1
+
+Close.Font =
+	Enum.Font.GothamBold
+
+Close.TextSize = 20
+
+Close.Parent = Top
+
+local CloseCorner =
+	Instance.new("UICorner")
+
+CloseCorner.CornerRadius =
+	UDim.new(0, 11)
+
+CloseCorner.Parent = Close
+
+--========================================================
+-- PLAYER PANEL
+--========================================================
+
+local PlayerPanel = Instance.new("Frame")
+
+PlayerPanel.Position =
+	UDim2.fromOffset(16, 78)
+
+PlayerPanel.Size =
+	UDim2.new(
+		0,
+		220,
+		1,
+		-94
+	)
+
+PlayerPanel.BackgroundColor3 = PANEL
+
+PlayerPanel.BackgroundTransparency = 1
+
+PlayerPanel.BorderSizePixel = 0
+
+PlayerPanel.Parent = Main
+
+local PlayerPanelCorner =
+	Instance.new("UICorner")
+
+PlayerPanelCorner.CornerRadius =
+	UDim.new(0, 16)
+
+PlayerPanelCorner.Parent =
+	PlayerPanel
+
+local PlayerTitle =
+	Instance.new("TextLabel")
+
+PlayerTitle.BackgroundTransparency = 1
+
+PlayerTitle.Position =
+	UDim2.fromOffset(14, 10)
+
+PlayerTitle.Size =
+	UDim2.new(1, -28, 0, 22)
+
+PlayerTitle.Font =
+	Enum.Font.GothamBold
+
+PlayerTitle.Text = "PLAYERS"
+
+PlayerTitle.TextColor3 = PINK
+
+PlayerTitle.TextSize = 12
+
+PlayerTitle.TextXAlignment =
+	Enum.TextXAlignment.Left
+
+PlayerTitle.TextTransparency = 1
+
+PlayerTitle.Parent = PlayerPanel
+
+local SelectedLabel =
+	Instance.new("TextLabel")
+
+SelectedLabel.BackgroundTransparency = 1
+
+SelectedLabel.Position =
+	UDim2.fromOffset(14, 34)
+
+SelectedLabel.Size =
+	UDim2.new(1, -28, 0, 27)
+
+SelectedLabel.Font =
+	Enum.Font.Gotham
+
+SelectedLabel.Text =
+	"Target: none"
+
+SelectedLabel.TextColor3 =
+	Color3.fromRGB(185, 165, 188)
+
+SelectedLabel.TextSize = 10
+
+SelectedLabel.TextXAlignment =
+	Enum.TextXAlignment.Left
+
+SelectedLabel.TextTruncate =
+	Enum.TextTruncate.AtEnd
+
+SelectedLabel.TextTransparency = 1
+
+SelectedLabel.Parent = PlayerPanel
+
+--========================================================
+-- PLAYER LIST
+--========================================================
+
+local PlayerList =
+	Instance.new("ScrollingFrame")
+
+PlayerList.Position =
+	UDim2.fromOffset(8, 66)
+
+PlayerList.Size =
+	UDim2.new(1, -16, 1, -74)
+
+PlayerList.BackgroundTransparency = 1
+
+PlayerList.BorderSizePixel = 0
+
+PlayerList.ScrollBarThickness = 3
+
+PlayerList.ScrollBarImageColor3 = PINK
+
+PlayerList.CanvasSize =
+	UDim2.new()
+
+PlayerList.AutomaticCanvasSize =
+	Enum.AutomaticSize.Y
+
+PlayerList.Parent = PlayerPanel
+
+local PlayerLayout =
+	Instance.new("UIListLayout")
+
+PlayerLayout.Padding =
+	UDim.new(0, 7)
+
+PlayerLayout.Parent = PlayerList
+
+--========================================================
+-- ACTION PANEL
+--========================================================
+
+local ActionPanel = Instance.new("Frame")
+
+ActionPanel.Position =
+	UDim2.fromOffset(252, 78)
+
+ActionPanel.Size =
+	UDim2.new(
+		1,
+		-268,
+		1,
+		-94
+	)
+
+ActionPanel.BackgroundColor3 = PANEL
+
+ActionPanel.BackgroundTransparency = 1
+
+ActionPanel.BorderSizePixel = 0
+
+ActionPanel.Parent = Main
+
+local ActionCorner =
+	Instance.new("UICorner")
+
+ActionCorner.CornerRadius =
+	UDim.new(0, 16)
+
+ActionCorner.Parent = ActionPanel
+
+local ActionTitle =
+	Instance.new("TextLabel")
+
+ActionTitle.BackgroundTransparency = 1
+
+ActionTitle.Position =
+	UDim2.fromOffset(15, 11)
+
+ActionTitle.Size =
+	UDim2.new(1, -30, 0, 22)
+
+ActionTitle.Font =
+	Enum.Font.GothamBold
+
+ActionTitle.Text = "ANIMATIONS"
+
+ActionTitle.TextColor3 = PINK
+
+ActionTitle.TextSize = 12
+
+ActionTitle.TextXAlignment =
+	Enum.TextXAlignment.Left
+
+ActionTitle.TextTransparency = 1
+
+ActionTitle.Parent = ActionPanel
+
+local Status =
+	Instance.new("TextLabel")
+
+Status.BackgroundTransparency = 1
+
+Status.Position =
+	UDim2.fromOffset(15, 37)
+
+Status.Size =
+	UDim2.new(1, -30, 0, 26)
+
+Status.Font =
+	Enum.Font.Gotham
+
+Status.Text =
+	"Choose a player ♡"
+
+Status.TextColor3 =
+	Color3.fromRGB(185, 165, 188)
+
+Status.TextSize = 10
+
+Status.TextXAlignment =
+	Enum.TextXAlignment.Left
+
+Status.TextTransparency = 1
+
+Status.TextTruncate =
+	Enum.TextTruncate.AtEnd
+
+Status.Parent = ActionPanel
+
+local Buttons =
+	Instance.new("Frame")
+
+Buttons.BackgroundTransparency = 1
+
+Buttons.Position =
+	UDim2.fromOffset(15, 72)
+
+Buttons.Size =
+	UDim2.new(1, -30, 1, -87)
+
+Buttons.Parent = ActionPanel
+
+local ButtonLayout =
+	Instance.new("UIListLayout")
+
+ButtonLayout.Padding =
+	UDim.new(0, 9)
+
+ButtonLayout.Parent = Buttons
+
+--========================================================
+-- REFRESH PLAYER LIST
+--========================================================
+
+local function refreshPlayers()
+
+	for _, object in ipairs(
+		PlayerList:GetChildren()
+	) do
+
+		if object:IsA("TextButton") then
+			object:Destroy()
+		end
+	end
+
+	playerButtons = {}
+
+	for _, player in ipairs(
+		Players:GetPlayers()
+	) do
+
+		if player ~= LP then
+
+			local button =
+				Instance.new("TextButton")
+
+			button.Size =
+				UDim2.new(
+					1,
+					-4,
+					0,
+					44
+				)
+
+			button.BackgroundColor3 =
+				BUTTON
+
+			button.BackgroundTransparency =
+				0.05
+
+			button.BorderSizePixel = 0
+
+			button.AutoButtonColor = false
+
+			button.Font =
+				Enum.Font.GothamMedium
+
+			button.Text =
+				player.DisplayName
+				.. "\n@"
+				.. player.Name
+
+			button.TextSize = 11
+
+			button.TextColor3 =
+				Color3.fromRGB(
+					245,
+					230,
+					242
+				)
+
+			button.Parent = PlayerList
+
+			local corner =
+				Instance.new("UICorner")
+
+			corner.CornerRadius =
+				UDim.new(0, 11)
+
+			corner.Parent = button
+
+			playerButtons[player] = button
+
+			button.MouseEnter:Connect(function()
+
+				if selectedPlayer ~= player then
+
+					TweenService:Create(
+						button,
+						TweenInfo.new(0.12),
+						{
+							BackgroundColor3 =
+								Color3.fromRGB(
+									72,
+									48,
+									70
+								)
+						}
+					):Play()
+				end
+			end)
+
+			button.MouseLeave:Connect(function()
+
+				if selectedPlayer ~= player then
+
+					TweenService:Create(
+						button,
+						TweenInfo.new(0.12),
+						{
+							BackgroundColor3 =
+								BUTTON
+						}
+					):Play()
+				end
+			end)
+
+			button.MouseButton1Click:Connect(
+				function()
+
+					selectedPlayer = player
+
+					for plr, btn
+						in pairs(playerButtons)
+					do
+
+						TweenService:Create(
+							btn,
+							TweenInfo.new(0.15),
+							{
+								BackgroundColor3 =
+									plr
+										== selectedPlayer
+										and BUTTON_ACTIVE
+										or BUTTON
+							}
+						):Play()
+					end
+
+					SelectedLabel.Text =
+						"Target: "
+						.. player.DisplayName
+
+					Status.Text =
+						"Ready • @"
+						.. player.Name
+				end
+			)
+		end
+	end
+end
+
+Players.PlayerAdded:Connect(
+	refreshPlayers
+)
+
+Players.PlayerRemoving:Connect(
+	function(player)
+
+		if selectedPlayer == player then
+
+			stopEverything()
+
+			selectedPlayer = nil
+
+			SelectedLabel.Text =
+				"Target: none"
+
+			Status.Text =
+				"Player left"
+		end
+
+		task.defer(refreshPlayers)
+	end
+)
+
+refreshPlayers()
+
+--========================================================
+-- BANG V2
+--========================================================
+
+local function startBang()
+
+	local rig = getRig()
+
+	local root = getRoot()
+	local targetRoot = getTargetRoot()
+
+	if not root or not targetRoot then
+		stopEverything()
+		return
+	end
+
+	running = true
+
+	if rig == "R6" then
+
+		playAnimation(
+			"189854234",
+			1
+		)
+
+		activeConnection =
+			RunService.Heartbeat:Connect(
+				function()
+
+					if not running then
+						return
+					end
+
+					root = getRoot()
+					targetRoot =
+						getTargetRoot()
+
+					if not root
+						or not targetRoot
+					then
+
+						stopEverything()
+						return
+					end
+
+					local targetCFrame =
+						targetRoot.CFrame
+
+					local followCFrame =
+						targetCFrame
+						* CFrame.new(
+							0,
+							0,
+							1.2
+						)
+
+					root.CFrame =
+						CFrame.new(
+							followCFrame.Position
+						)
+						* CFrame.Angles(
+							0,
+							math.atan2(
+								-targetCFrame.LookVector.X,
+								-targetCFrame.LookVector.Z
+							),
+							0
+						)
+				end
+			)
+
+	else
+
+		playAnimation(
+			"10714068222",
+			2
+		)
+
+		task.spawn(function()
+
+			while running
+				and currentAction
+					== "Bang V2"
+			do
+
+				root = getRoot()
+				targetRoot =
+					getTargetRoot()
+
+				if not root
+					or not targetRoot
+				then
+					stopEverything()
+					break
+				end
+
+				activeTween =
+					TweenService:Create(
+						root,
+
+						TweenInfo.new(
+							0.2,
+							Enum.EasingStyle.Linear
+						),
+
+						{
+							CFrame =
+								targetRoot.CFrame
+								* CFrame.new(
+									0,
+									0,
+									1
+								)
+						}
+					)
+
+				activeTween:Play()
+				activeTween.Completed:Wait()
+
+				if not running then
+					break
+				end
+
+				targetRoot =
+					getTargetRoot()
+
+				if not targetRoot then
+					break
+				end
+
+				activeTween =
+					TweenService:Create(
+						root,
+
+						TweenInfo.new(
+							0.2,
+							Enum.EasingStyle.Linear
+						),
+
+						{
+							CFrame =
+								targetRoot.CFrame
+								* CFrame.new(
+									0,
+									0,
+									2.5
+								)
+						}
+					)
+
+				activeTween:Play()
+				activeTween.Completed:Wait()
+			end
+		end)
+	end
+end
+
+--========================================================
+-- GET BANGED
+--========================================================
+
+local function startGetBanged()
+
+	local rig = getRig()
+
+	if rig == "R6" then
+
+		playAnimation(
+			"189854234",
+			1
+		)
+
+	else
+
+		playAnimation(
+			"10714360343",
+			1
+		)
+	end
+
+	running = true
+
+	task.spawn(function()
+
+		while running
+			and currentAction
+				== "Get Banged"
+		do
+
+			local root =
+				getRoot()
+
+			local targetRoot =
+				getTargetRoot()
+
+			if not root
+				or not targetRoot
+			then
+
+				stopEverything()
+				break
+			end
+
+			local positionA
+			local positionB
+
+			if rig == "R6" then
+
+				positionA = -2.5
+				positionB = -1.3
+
+			else
+
+				positionA = -1.5
+				positionB = -1.1
+			end
+
+			activeTween =
+				TweenService:Create(
+					root,
+
+					TweenInfo.new(
+						0.15,
+						Enum.EasingStyle.Linear
+					),
+
+					{
+						CFrame =
+							targetRoot.CFrame
+							* CFrame.new(
+								0,
+								0,
+								positionA
+							)
+					}
+				)
+
+			activeTween:Play()
+			activeTween.Completed:Wait()
+
+			if not running then
+				break
+			end
+
+			targetRoot =
+				getTargetRoot()
+
+			if not targetRoot then
+				break
+			end
+
+			activeTween =
+				TweenService:Create(
+					root,
+
+					TweenInfo.new(
+						0.15,
+						Enum.EasingStyle.Linear
+					),
+
+					{
+						CFrame =
+							targetRoot.CFrame
+							* CFrame.new(
+								0,
+								0,
+								positionB
+							)
+					}
+				)
+
+			activeTween:Play()
+			activeTween.Completed:Wait()
+		end
+	end)
+end
+
+--========================================================
+-- SUCK
+--========================================================
+
+local function startSuck()
+
+	local rig = getRig()
+
+	local root = getRoot()
+	local torso = getTargetTorso()
+
+	if not root or not torso then
+		stopEverything()
+		return
+	end
+
+	running = true
+
+	originalGravity =
+		workspace.Gravity
+
+	workspace.Gravity = 0
+
+	if rig == "R6" then
+
+		playAnimation(
+			"178130996",
+			1
+		)
+
+	else
+
+		playAnimation(
+			"5918726674",
+			1
+		)
+	end
+
+	activeConnection =
+		RunService.Heartbeat:Connect(
+			function()
+
+				if not running then
+					return
+				end
+
+				root = getRoot()
+				torso =
+					getTargetTorso()
+
+				if not root
+					or not torso
+				then
+
+					stopEverything()
+					return
+				end
+
+				root.CFrame =
+					torso.CFrame
+					* CFrame.new(
+						0,
+						-2.3,
+						-1
+					)
+					* CFrame.Angles(
+						0,
+						math.pi,
+						0
+					)
+			end
+		)
+end
+
+--========================================================
+-- GET SUC
+--========================================================
+
+local function startGetSuc()
+
+	local rig = getRig()
+
+	local root = getRoot()
+
+	local targetRoot =
+		getTargetRoot()
+
+	if not root
+		or not targetRoot
+	then
+
+		stopEverything()
+		return
+	end
+
+	running = true
+
+	originalGravity =
+		workspace.Gravity
+
+	workspace.Gravity = 0
+
+	task.spawn(function()
+
+		while running
+			and currentAction
+				== "Get Suc"
+			and root
+			and root.Parent
+			and root.Position.Y <= 44
+		do
+
+			RunService.Heartbeat:Wait()
+
+			root.CFrame =
+				root.CFrame
+				* CFrame.new(
+					0,
+					1.5,
+					0
+				)
+		end
+
+		if not running then
+			return
+		end
+
+		task.wait(1)
+
+		if not running then
+			return
+		end
+
+		activeConnection =
+			RunService.Stepped:Connect(
+				function()
+
+					if not running then
+						return
+					end
+
+					root = getRoot()
+
+					targetRoot =
+						getTargetRoot()
+
+					if not root
+						or not targetRoot
+					then
+
+						stopEverything()
+						return
+					end
+
+					root.CFrame =
+						targetRoot.CFrame
+						* CFrame.new(
+							0,
+							2.3,
+							-1.1
+						)
+						* CFrame.Angles(
+							0,
+							math.pi,
+							0
+						)
+
+					root.AssemblyLinearVelocity =
+						Vector3.zero
+				end
+			)
+
+		task.wait(1)
+
+		if not running then
+			return
+		end
+
+		if rig == "R6" then
+
+			playAnimation(
+				"148840371",
+				3
+			)
+
+		else
+
+			playAnimation(
+				"5918726674",
+				1
+			)
+		end
+	end)
+end
+
+--========================================================
+-- ACTION BUTTON CREATOR
+--========================================================
+
+local function createActionButton(
+	name,
+	callback
+)
+
+	local button =
+		Instance.new("TextButton")
+
+	button.Size =
+		UDim2.new(
+			1,
+			0,
+			0,
+			40
+		)
+
+	button.BackgroundColor3 =
+		BUTTON
+
+	button.BorderSizePixel = 0
+	button.AutoButtonColor = false
+
+	button.Font =
+		Enum.Font.GothamMedium
+
+	button.Text = name
+
+	button.TextSize = 12
+
+	button.TextColor3 =
+		Color3.fromRGB(
+			250,
+			232,
+			246
+		)
+
+	button.Parent = Buttons
+
+	local corner =
+		Instance.new("UICorner")
+
+	corner.CornerRadius =
+		UDim.new(0, 12)
+
+	corner.Parent = button
+
+	actionButtons[name] =
+		button
+
+	button.MouseEnter:Connect(
+		function()
+
+			if currentAction ~= name then
+
+				TweenService:Create(
+					button,
+
+					TweenInfo.new(0.12),
+
+					{
+						BackgroundColor3 =
+							Color3.fromRGB(
+								75,
+								49,
+								72
+							)
+					}
+				):Play()
+			end
+		end
+	)
+
+	button.MouseLeave:Connect(
+		function()
+
+			if currentAction ~= name then
+
+				TweenService:Create(
+					button,
+
+					TweenInfo.new(0.12),
+
+					{
+						BackgroundColor3 =
+							BUTTON
+					}
+				):Play()
+			end
+		end
+	)
+
+	button.MouseButton1Click:Connect(
+		function()
+
+			if not selectedPlayer then
+
+				Status.Text =
+					"Choose a player first ♡"
+
+				return
+			end
+
+			if not selectedPlayer.Parent then
+
+				selectedPlayer = nil
+
+				Status.Text =
+					"Player left"
+
+				return
+			end
+
+			if running
+				and currentAction == name
+			then
+
+				stopEverything()
+
+				Status.Text =
+					"Stopped ♡"
+
+				return
+			end
+
+			stopEverything()
+
+			currentAction = name
+			running = true
+
+			TweenService:Create(
+				button,
+
+				TweenInfo.new(0.15),
+
+				{
+					BackgroundColor3 =
+						BUTTON_ACTIVE
+				}
+			):Play()
+
+			Status.Text =
+				name
+				.. " • "
+				.. getRig()
+				.. " • "
+				.. selectedPlayer.DisplayName
+
+			callback()
+		end
+	)
+end
+
+createActionButton(
+	"Bang V2",
+	startBang
+)
+
+createActionButton(
+	"Get Banged",
+	startGetBanged
+)
+
+createActionButton(
+	"Suck",
+	startSuck
+)
+
+createActionButton(
+	"Get Suc",
+	startGetSuc
+)
+
+--========================================================
+-- DRAGGING
+--========================================================
+
+local dragging = false
+local dragStart = nil
+local dragPosition = nil
+
+Top.InputBegan:Connect(
+	function(input)
+
+		if input.UserInputType
+			== Enum.UserInputType.MouseButton1
+		then
+
+			dragging = true
+
+			dragStart =
+				input.Position
+
+			dragPosition =
+				Main.Position
+		end
+	end
+)
+
+UIS.InputChanged:Connect(
+	function(input)
+
+		if dragging
+			and input.UserInputType
+				== Enum.UserInputType.MouseMovement
+		then
+
+			local delta =
+				input.Position
+				- dragStart
+
+			Main.Position =
+				UDim2.new(
+
+					dragPosition.X.Scale,
+
+					dragPosition.X.Offset
+						+ delta.X,
+
+					dragPosition.Y.Scale,
+
+					dragPosition.Y.Offset
+						+ delta.Y
+				)
+		end
+	end
+)
+
+UIS.InputEnded:Connect(
+	function(input)
+
+		if input.UserInputType
+			== Enum.UserInputType.MouseButton1
+		then
+
+			dragging = false
+		end
+	end
+)
+
+--========================================================
+-- UI TRANSPARENCY
+--========================================================
+
+local function tweenContent(show)
+
+	local textTransparency =
+		show and 0 or 1
+
+	local panelTransparency =
+		show and 0 or 1
+
+	local buttonTransparency =
+		show and 0 or 1
+
+	TweenService:Create(
+		MainStroke,
+		TWEEN_INFO,
+		{
+			Transparency =
+				show and 0.35 or 1
+		}
+	):Play()
+
+	TweenService:Create(
+		Top,
+		TWEEN_INFO,
+		{
+			BackgroundTransparency =
+				panelTransparency
+		}
+	):Play()
+
+	TweenService:Create(
+		TopBottomFix,
+		TWEEN_INFO,
+		{
+			BackgroundTransparency =
+				panelTransparency
+		}
+	):Play()
+
+	for _, label in ipairs({
+		Title,
+		Credit,
+		RigLabel,
+		PlayerTitle,
+		SelectedLabel,
+		ActionTitle,
+		Status
+	}) do
+
+		TweenService:Create(
+			label,
+			TWEEN_INFO,
+			{
+				TextTransparency =
+					textTransparency
+			}
+		):Play()
+	end
+
+	TweenService:Create(
+		PlayerPanel,
+		TWEEN_INFO,
+		{
+			BackgroundTransparency =
+				panelTransparency
+		}
+	):Play()
+
+	TweenService:Create(
+		ActionPanel,
+		TWEEN_INFO,
+		{
+			BackgroundTransparency =
+				panelTransparency
+		}
+	):Play()
+
+	TweenService:Create(
+		Minimize,
+		TWEEN_INFO,
+		{
+			BackgroundTransparency =
+				buttonTransparency,
+
+			TextTransparency =
+				textTransparency
+		}
+	):Play()
+
+	TweenService:Create(
+		Close,
+		TWEEN_INFO,
+		{
+			BackgroundTransparency =
+				buttonTransparency,
+
+			TextTransparency =
+				textTransparency
+		}
+	):Play()
+
+	for _, button in pairs(
+		playerButtons
+	) do
+
+		TweenService:Create(
+			button,
+			TWEEN_INFO,
+			{
+				BackgroundTransparency =
+					buttonTransparency,
+
+				TextTransparency =
+					textTransparency
+			}
+		):Play()
+	end
+
+	for _, button in pairs(
+		actionButtons
+	) do
+
+		TweenService:Create(
+			button,
+			TWEEN_INFO,
+			{
+				BackgroundTransparency =
+					buttonTransparency,
+
+				TextTransparency =
+					textTransparency
+			}
+		):Play()
+	end
+end
+
+--========================================================
+-- OPEN
+--========================================================
+
+local function openMenu()
+
+	if closing then
+		return
+	end
+
+	menuOpen = true
+
+	Main.Visible = true
+
+	if minimized then
+		Main.Size =
+			UDim2.fromOffset(
+				530,
+				58
+			)
+	else
+		Main.Size =
+			UDim2.fromOffset(
+				530,
+				350
+			)
+	end
+
+	Main.BackgroundTransparency = 1
+
+	local targetSize =
+		minimized
+			and MINIMIZED_SIZE
+			or OPEN_SIZE
+
+	local currentPosition =
+		Main.Position
+
+	Main.Position =
+		UDim2.new(
+			currentPosition.X.Scale,
+			currentPosition.X.Offset,
+			currentPosition.Y.Scale,
+			currentPosition.Y.Offset + 24
+		)
+
+	TweenService:Create(
+		Main,
+		TWEEN_INFO,
+		{
+			Size = targetSize,
+
+			Position =
+				UDim2.new(
+					currentPosition.X.Scale,
+					currentPosition.X.Offset,
+					currentPosition.Y.Scale,
+					currentPosition.Y.Offset
+				),
+
+			BackgroundTransparency = 0
+		}
+	):Play()
+
+	tweenContent(true)
+end
+
+--========================================================
+-- HIDE
+--========================================================
+
+local function hideMenu()
+
+	if closing
+		or not menuOpen
+	then
+		return
+	end
+
+	menuOpen = false
+
+	local position =
+		Main.Position
+
+	tweenContent(false)
+
+	local tween =
+		TweenService:Create(
+			Main,
+
+			TWEEN_INFO,
+
+			{
+				Size =
+					UDim2.fromOffset(
+						530,
+						350
+					),
+
+				Position =
+					UDim2.new(
+						position.X.Scale,
+						position.X.Offset,
+						position.Y.Scale,
+						position.Y.Offset + 24
+					),
+
+				BackgroundTransparency = 1
+			}
+		)
+
+	tween:Play()
+
+	task.delay(
+		0.29,
+		function()
+
+			if not menuOpen
+				and not closing
+			then
+				Main.Visible = false
+			end
+		end
+	)
+end
+
+--========================================================
+-- RIGHT SHIFT
+--========================================================
+
+UIS.InputBegan:Connect(
+	function(input, processed)
+
+		if processed then
+			return
+		end
+
+		if input.KeyCode
+			== Enum.KeyCode.RightShift
+		then
+
+			if menuOpen then
+				hideMenu()
+			else
+				openMenu()
+			end
+		end
+	end
+)
+
+--========================================================
+-- MINIMIZE
+--========================================================
+
+Minimize.MouseButton1Click:Connect(
+	function()
+
+		if closing then
+			return
+		end
+
+		minimized = not minimized
+
+		Minimize.Text =
+			minimized and "+" or "—"
+
+		TweenService:Create(
+			Main,
+
+			TweenInfo.new(
+				0.3,
+				Enum.EasingStyle.Quint,
+				Enum.EasingDirection.Out
+			),
+
+			{
+				Size =
+					minimized
+						and MINIMIZED_SIZE
+						or OPEN_SIZE
+			}
+		):Play()
+	end
+)
+
+--========================================================
+-- CLOSE BUTTON
+--========================================================
+
+Close.MouseButton1Click:Connect(
+	function()
+
+		if closing then
+			return
+		end
+
+		closing = true
+
+		stopEverything()
+
+		tweenContent(false)
+
+		local position =
+			Main.Position
+
+		local closeTween =
+			TweenService:Create(
+				Main,
+
+				TweenInfo.new(
+					0.3,
+					Enum.EasingStyle.Quint,
+					Enum.EasingDirection.In
+				),
+
+				{
+					Size =
+						UDim2.fromOffset(
+							500,
+							330
+						),
+
+					Position =
+						UDim2.new(
+							position.X.Scale,
+							position.X.Offset + 15,
+							position.Y.Scale,
+							position.Y.Offset + 20
+						),
+
+					BackgroundTransparency = 1
+				}
+			)
+
+		closeTween:Play()
+		closeTween.Completed:Wait()
+
+		ScreenGui:Destroy()
+	end
+)
+
+--========================================================
+-- RESPAWN
+--========================================================
+
+LP.CharacterAdded:Connect(
+	function()
+
+		stopEverything()
+
+		task.wait(1)
+
+		RigLabel.Text =
+			"Rig • " .. getRig()
+
+		Status.Text =
+			"Respawn detected • ready ♡"
+	end
+)
+
+--========================================================
+-- START ANIMATION
+--========================================================
+
+task.wait()
+
+Main.Size =
+	UDim2.fromOffset(
+		530,
+		350
+	)
+
+Main.Position =
+	UDim2.new(
+		0.5,
+		-265,
+		0.5,
+		-175 + 25
+	)
+
+RigLabel.Text =
+	"Rig • " .. getRig()
+
+Status.Text =
+	"Choose a player ♡"
+
+openMenu()
